@@ -26,6 +26,8 @@ export class Game {
         this.capitalShips = [];
         this.clouds = [];
         this.debris = [];
+        this.damageTexts = [];
+        this.explosions = [];
 
         // Planet approach — continuous, never stops, accelerates over time
         this.planetApproach = 0;       // 0 ~ 1 continuous approach
@@ -39,7 +41,7 @@ export class Game {
 
         // Tower selection
         this.selectedTowerType = 'turret';
-        this.towerCosts = { turret: 50, laser: 75, shield: 100 };
+        this.towerCosts = { turret: 50, laser: 75, shield: 100, missile: 125, tesla: 150 };
 
         // Input
         this.mouseX = 0;
@@ -55,6 +57,8 @@ export class Game {
             if (e.key === '1') this.selectTower('turret');
             if (e.key === '2') this.selectTower('laser');
             if (e.key === '3') this.selectTower('shield');
+            if (e.key === '4') this.selectTower('missile');
+            if (e.key === '5') this.selectTower('tesla');
         });
 
         // Tower bar click handlers
@@ -111,17 +115,31 @@ export class Game {
 
     generateDebris() {
         this.debris = [];
-        for (let i = 0; i < 8; i++) {
-            this.debris.push({
-                x: Math.random() * this.width,
-                y: Math.random() * this.height * 0.5,
-                size: 1 + Math.random() * 3,
-                speed: 0.3 + Math.random() * 0.8,
-                angle: Math.PI * 0.4 + Math.random() * 0.3,
-                trailLen: 20 + Math.random() * 40,
-                life: Math.random() * 1000
-            });
+        // Initial burst — spread across the whole sky so it looks like a meteor shower already in progress
+        for (let i = 0; i < 300; i++) {
+            const d = this.createDebris();
+            // All start from the top edge, spread horizontally
+            d.x = Math.random() * this.width * 1.4 - this.width * 0.2;
+            d.y = -Math.random() * 150;
+            d.life = Math.random() * 300;
+            this.debris.push(d);
         }
+    }
+
+    createDebris() {
+        const roll = Math.random();
+        const isBig = roll < 0.1;
+        const isMedium = roll < 0.35;
+        return {
+            x: Math.random() * this.width,
+            y: -20 - Math.random() * 80,
+            size: isBig ? 4 + Math.random() * 5 : isMedium ? 1.5 + Math.random() * 2.5 : 0.5 + Math.random() * 1.5,
+            speed: isBig ? 0.8 + Math.random() * 1.5 : isMedium ? 0.3 + Math.random() * 0.8 : 0.15 + Math.random() * 0.5,
+            angle: Math.PI * 0.3 + Math.random() * 0.5,
+            trailLen: isBig ? 60 + Math.random() * 100 : isMedium ? 25 + Math.random() * 50 : 8 + Math.random() * 25,
+            life: Math.random() * 1000,
+            brightness: isBig ? 0.7 + Math.random() * 0.3 : 0.2 + Math.random() * 0.6
+        };
     }
 
     generateCityLayers() {
@@ -211,6 +229,8 @@ export class Game {
         this.projectiles = [];
         this.capitalShips = [];
         this.particles = [];
+        this.damageTexts = [];
+        this.explosions = [];
         this.planetApproach = 0;
         this.screenShake = 0;
         this.spawnFlash = 0;
@@ -229,9 +249,9 @@ export class Game {
         // Screen shake on wave transition — stronger as planet is closer
         this.screenShake = Math.min(12, 1 + this.planetApproach * 15);
 
-        // Enemy count scales with wave AND current planet proximity (TEST: boosted)
-        const approachBonus = Math.floor(this.planetApproach * 20);
-        this.enemiesToSpawn = 10 + (this.wave * 8) + approachBonus;
+        // Enemy count — moderate start, escalates with waves
+        const approachBonus = Math.floor(this.planetApproach * 15);
+        this.enemiesToSpawn = 8 + (this.wave * 5) + approachBonus;
         this.spawnTimer = 0;
 
         // Capital ships more frequent as planet approaches
@@ -243,18 +263,12 @@ export class Game {
             this.capitalShips.push(new CapitalShip(this.width, this.height));
         }
 
-        // Spawn extra debris as planet gets closer
-        const extraDebris = Math.floor(this.planetApproach * 15);
+        // Spawn extra debris as planet gets closer — meteor shower intensifies
+        const extraDebris = Math.floor(this.planetApproach * 40) + 10;
         for (let i = 0; i < extraDebris; i++) {
-            this.debris.push({
-                x: Math.random() * this.width,
-                y: Math.random() * this.height * 0.5,
-                size: 1 + Math.random() * 3,
-                speed: 0.3 + Math.random() * 0.8,
-                angle: Math.PI * 0.4 + Math.random() * 0.3,
-                trailLen: 20 + Math.random() * 40,
-                life: Math.random() * 1000
-            });
+            const nd = this.createDebris();
+            nd.y = -20 - Math.random() * 100;
+            this.debris.push(nd);
         }
     }
 
@@ -271,6 +285,8 @@ export class Game {
             switch (this.selectedTowerType) {
                 case 'laser': tower = new LaserTower(e.clientX, e.clientY); break;
                 case 'shield': tower = new ShieldGenerator(e.clientX, e.clientY); break;
+                case 'missile': tower = new MissileTower(e.clientX, e.clientY); break;
+                case 'tesla': tower = new TeslaTower(e.clientX, e.clientY); break;
                 default: tower = new Tower(e.clientX, e.clientY); break;
             }
 
@@ -287,8 +303,28 @@ export class Game {
         let targetX = this.width * 0.15 + Math.random() * this.width * 0.7;
         let targetY = this.height + 50;
 
-        this.enemies.push(new Enemy(x, y, targetX, targetY, this.wave, this.planetApproach));
-        // Flash the planet when it "launches" an enemy
+        const roll = Math.random();
+        const w = this.wave;
+        const pa = this.planetApproach;
+
+        if (w >= 3 && roll < 0.08 + w * 0.01) {
+            // Splitter — rare, increases with wave
+            this.enemies.push(new SplitterEnemy(x, y, targetX, targetY, w, pa));
+        } else if (w >= 2 && roll < 0.20 + w * 0.015) {
+            // Tank — beefy, slow
+            this.enemies.push(new TankEnemy(x, y, targetX, targetY, w, pa));
+        } else if (w >= 2 && roll < 0.40 + w * 0.02) {
+            // Swarm — spawn 3 small fast enemies
+            for (let i = 0; i < 3; i++) {
+                let sx = x + (Math.random() - 0.5) * 40;
+                let sy = y - Math.random() * 30;
+                this.enemies.push(new SwarmEnemy(sx, sy, targetX + (Math.random() - 0.5) * 60, targetY, w, pa));
+            }
+        } else {
+            // Standard meteor
+            this.enemies.push(new Enemy(x, y, targetX, targetY, w, pa));
+        }
+
         this.spawnFlash = 0.6;
     }
 
@@ -296,6 +332,14 @@ export class Game {
         for (let i = 0; i < count; i++) {
             this.particles.push(new Particle(x, y, color));
         }
+    }
+
+    spawnDamageText(x, y, amount, color = '#ffcc00') {
+        this.damageTexts.push(new DamageText(x, y, amount, color));
+    }
+
+    spawnExplosion(x, y, color = '#ff0055', radius = 50) {
+        this.explosions.push(new Explosion(x, y, color, radius));
     }
 
     update(dt) {
@@ -318,24 +362,25 @@ export class Game {
         });
 
         // Debris animation (falling burning fragments)
-        this.debris.forEach(d => {
+        this.debris.forEach((d, idx) => {
             d.x += Math.cos(d.angle) * d.speed * dt * 0.05;
             d.y += Math.sin(d.angle) * d.speed * dt * 0.05;
             d.life += dt;
             if (d.y > this.height || d.x < -50 || d.x > this.width + 50) {
-                d.x = Math.random() * this.width;
-                d.y = -20;
-                d.life = 0;
+                const nd = this.createDebris();
+                nd.y = -20;
+                nd.life = 0;
+                this.debris[idx] = nd;
             }
         });
 
         // Wave Logic — spawn rate intensifies with planet approach
         if (this.enemiesToSpawn > 0) {
             this.spawnTimer += dt;
-            // Base interval shrinks with wave, ALSO shrinks further with planet proximity
-            const baseInterval = 800 - Math.min(600, this.wave * 40);
-            const approachSpeedup = 1.0 - this.planetApproach * 0.6;
-            const spawnInterval = Math.max(100, baseInterval * approachSpeedup);
+            // Steady spawn, ramps up over waves
+            const baseInterval = 700 - Math.min(450, this.wave * 30);
+            const approachSpeedup = 1.0 - this.planetApproach * 0.5;
+            const spawnInterval = Math.max(150, baseInterval * approachSpeedup);
             if (this.spawnTimer > spawnInterval) {
                 this.spawnEnemy();
                 this.enemiesToSpawn--;
@@ -386,12 +431,39 @@ export class Game {
                 if (e.hp <= 0) continue; // Already dead from laser/shield
                 if (Math.hypot(p.x - e.x, p.y - e.y) < e.size + p.size) {
                     e.hp -= p.damage;
-                    this.spawnParticles(e.x, e.y, 5, '#ffa500');
+                    this.spawnDamageText(e.x, e.y - 15, Math.round(p.damage), p.splash ? '#ff8800' : '#ffcc00');
+                    this.spawnParticles(e.x, e.y, p.splash ? 12 : 5, '#ffa500');
                     hit = true;
+                    // Splash damage (missiles)
+                    if (p.splash) {
+                        this.spawnExplosion(p.x, p.y, '#ff8800', p.splash);
+                        this.screenShake = Math.max(this.screenShake, 4);
+                        for (let k = this.enemies.length - 1; k >= 0; k--) {
+                            let se = this.enemies[k];
+                            if (se === e || se.hp <= 0) continue;
+                            if (Math.hypot(p.x - se.x, p.y - se.y) < p.splash) {
+                                let splashDmg = Math.round(p.damage * 0.5);
+                                se.hp -= splashDmg;
+                                this.spawnDamageText(se.x, se.y - 15, splashDmg, '#ff8800');
+                            }
+                        }
+                    }
                     if (e.hp <= 0) {
                         this.credits += e.reward;
+                        this.spawnParticles(e.x, e.y, 25, '#ff0055');
+                        this.spawnExplosion(e.x, e.y, '#ff4400', 60);
+                        this.screenShake = Math.max(this.screenShake, 2);
+                        // Splitter spawns children on death
+                        if (e.type === 'splitter') {
+                            for (let s = 0; s < 3; s++) {
+                                let sx = e.x + (Math.random() - 0.5) * 30;
+                                let sy = e.y + (Math.random() - 0.5) * 30;
+                                let tx = this.width * 0.2 + Math.random() * this.width * 0.6;
+                                this.enemies.push(new SwarmEnemy(sx, sy, tx, this.height + 50, this.wave, this.planetApproach));
+                            }
+                            this.spawnExplosion(e.x, e.y, '#aa44ff', 45);
+                        }
                         this.enemies.splice(j, 1);
-                        this.spawnParticles(e.x, e.y, 15, '#ff0055');
                         this.updateHud();
                     }
                     break;
@@ -406,8 +478,21 @@ export class Game {
         // Cleanup enemies killed by laser/shield (not caught by projectile loop)
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             if (this.enemies[i].hp <= 0) {
-                this.credits += this.enemies[i].reward;
-                this.spawnParticles(this.enemies[i].x, this.enemies[i].y, 15, '#ff0055');
+                const de = this.enemies[i];
+                this.credits += de.reward;
+                this.spawnParticles(de.x, de.y, 25, '#ff0055');
+                this.spawnExplosion(de.x, de.y, '#ff4400', 60);
+                this.screenShake = Math.max(this.screenShake, 2);
+                // Splitter spawns children on death
+                if (de.type === 'splitter') {
+                    for (let s = 0; s < 3; s++) {
+                        let sx = de.x + (Math.random() - 0.5) * 30;
+                        let sy = de.y + (Math.random() - 0.5) * 30;
+                        let tx = this.width * 0.2 + Math.random() * this.width * 0.6;
+                        this.enemies.push(new SwarmEnemy(sx, sy, tx, this.height + 50, this.wave, this.planetApproach));
+                    }
+                    this.spawnExplosion(de.x, de.y, '#aa44ff', 45);
+                }
                 this.enemies.splice(i, 1);
                 this.updateHud();
             }
@@ -416,6 +501,16 @@ export class Game {
         for (let i = this.particles.length - 1; i >= 0; i--) {
             this.particles[i].update(dt);
             if (this.particles[i].life <= 0) this.particles.splice(i, 1);
+        }
+
+        for (let i = this.damageTexts.length - 1; i >= 0; i--) {
+            this.damageTexts[i].update(dt);
+            if (this.damageTexts[i].life <= 0) this.damageTexts.splice(i, 1);
+        }
+
+        for (let i = this.explosions.length - 1; i >= 0; i--) {
+            this.explosions[i].update(dt);
+            if (this.explosions[i].life <= 0) this.explosions.splice(i, 1);
         }
     }
 
@@ -514,53 +609,106 @@ export class Game {
         // Starts high above screen, descends into view as it approaches
         const cy = -r * 0.75 + approach * H * 0.45;
 
-        // Planet body — slightly lighter than pure black so it's visible
+        // Planet body — gas giant surface
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.clip();
 
-        const planetGrad = ctx.createRadialGradient(cx, cy + r * 0.5, r * 0.1, cx, cy, r);
-        planetGrad.addColorStop(0, '#140828');   // Visible dark purple center
-        planetGrad.addColorStop(0.4, '#0a0418');
-        planetGrad.addColorStop(0.8, '#050010');
-        planetGrad.addColorStop(1, '#020008');
+        // Base gradient — deep dark sphere with slight illumination from below
+        const planetGrad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.2, r * 0.05, cx, cy, r);
+        planetGrad.addColorStop(0, '#1a0a30');
+        planetGrad.addColorStop(0.3, '#120620');
+        planetGrad.addColorStop(0.7, '#0a0318');
+        planetGrad.addColorStop(1, '#040010');
         ctx.fillStyle = planetGrad;
         ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
-        // Banding texture — more visible
-        const bandAlphaBoost = 1.5 + approach * 2;
-        for (let i = 0; i < 50; i++) {
-            let yOff = (i / 50) * r * 2 - r;
-            let bandH = (r * 2) / 50;
+        // Atmospheric banding — structured horizontal cloud bands like Jupiter
+        const bandCount = 28;
+        const bandAlpha = 0.8 + approach * 1.2;
+        const bandColors = [
+            [140, 50, 170], [80, 30, 120], [170, 70, 100], [50, 60, 130],
+            [120, 35, 80], [60, 40, 140], [160, 80, 120], [40, 50, 100],
+            [100, 25, 60], [80, 60, 150]
+        ];
+        for (let i = 0; i < bandCount; i++) {
+            const t = i / bandCount;
+            const yOff = (t * 2 - 1) * r;
+            const bandW = r * Math.sqrt(1 - Math.pow(t * 2 - 1, 2));
+            if (bandW <= 0) continue;
+            const bandH = r * 2 / bandCount;
+            const c = bandColors[i % bandColors.length];
+            // Wavy band edges for turbulence
+            const waveOff = Math.sin(t * 12 + time * 0.0004) * r * 0.02;
 
+            const alpha = (0.08 + Math.sin(t * 8) * 0.04) * bandAlpha;
+            ctx.fillStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${alpha})`;
             ctx.beginPath();
-            ctx.ellipse(cx, cy + yOff, r, bandH * 3, 0, 0, Math.PI * 2);
-
-            let alpha = (0.03 + Math.random() * 0.08) * bandAlphaBoost;
-            let color;
-            switch (i % 5) {
-                case 0: color = `rgba(120, 40, 160, ${alpha})`; break;
-                case 1: color = `rgba(40, 70, 140, ${alpha})`; break;
-                case 2: color = `rgba(160, 60, 90, ${alpha})`; break;
-                case 3: color = `rgba(30, 90, 120, ${alpha})`; break;
-                default: color = `rgba(20, 10, 40, ${alpha})`; break;
-            }
-            ctx.fillStyle = color;
+            ctx.ellipse(cx + waveOff, cy + yOff, bandW, bandH * 1.8, 0, 0, Math.PI * 2);
             ctx.fill();
+
+            // Thinner bright edge between bands
+            if (i % 3 === 0) {
+                ctx.fillStyle = `rgba(${c[0] + 60}, ${c[1] + 40}, ${c[2] + 40}, ${alpha * 0.5})`;
+                ctx.beginPath();
+                ctx.ellipse(cx - waveOff * 0.5, cy + yOff + bandH * 0.5, bandW * 0.95, bandH * 0.4, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
-        // Surface detail — subtle "storm" swirls
-        const stormX = cx + Math.sin(time * 0.0003) * r * 0.2;
-        const stormY = cy + r * 0.3;
-        const stormGrad = ctx.createRadialGradient(stormX, stormY, 0, stormX, stormY, r * 0.25);
-        stormGrad.addColorStop(0, `rgba(100, 40, 140, ${0.08 + approach * 0.05})`);
-        stormGrad.addColorStop(0.5, `rgba(60, 20, 100, ${0.04})`);
+        // Great storm eye (like Jupiter's red spot)
+        const stormX = cx + Math.sin(time * 0.00015) * r * 0.25;
+        const stormY = cy + r * 0.25;
+        const stormRx = r * 0.18;
+        const stormRy = r * 0.08;
+        // Outer storm
+        const stormGrad = ctx.createRadialGradient(stormX, stormY, 0, stormX, stormY, stormRx);
+        stormGrad.addColorStop(0, `rgba(200, 60, 80, ${0.3 + approach * 0.15})`);
+        stormGrad.addColorStop(0.4, `rgba(160, 40, 100, ${0.2 + approach * 0.1})`);
+        stormGrad.addColorStop(0.7, `rgba(120, 30, 80, ${0.1})`);
         stormGrad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = stormGrad;
         ctx.beginPath();
-        ctx.ellipse(stormX, stormY, r * 0.25, r * 0.1, Math.sin(time * 0.0002) * 0.3, 0, Math.PI * 2);
+        ctx.ellipse(stormX, stormY, stormRx, stormRy, Math.sin(time * 0.0002) * 0.2, 0, Math.PI * 2);
         ctx.fill();
+        // Storm swirl ring
+        ctx.strokeStyle = `rgba(220, 80, 100, ${0.15 + approach * 0.1})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(stormX, stormY, stormRx * 0.7, stormRy * 0.7, -Math.sin(time * 0.0003) * 0.4, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Second smaller storm
+        const storm2X = cx - r * 0.3 + Math.sin(time * 0.0002) * r * 0.05;
+        const storm2Y = cy - r * 0.15;
+        const s2Grad = ctx.createRadialGradient(storm2X, storm2Y, 0, storm2X, storm2Y, r * 0.1);
+        s2Grad.addColorStop(0, `rgba(80, 50, 160, ${0.2 + approach * 0.1})`);
+        s2Grad.addColorStop(0.6, `rgba(50, 30, 120, ${0.1})`);
+        s2Grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = s2Grad;
+        ctx.beginPath();
+        ctx.ellipse(storm2X, storm2Y, r * 0.1, r * 0.045, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Spherical shading — terminator (day/night boundary) for 3D depth
+        const shadeGrad = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+        shadeGrad.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
+        shadeGrad.addColorStop(0.3, 'rgba(0, 0, 0, 0.1)');
+        shadeGrad.addColorStop(0.55, 'rgba(0, 0, 0, 0)');
+        shadeGrad.addColorStop(0.8, 'rgba(0, 0, 0, 0.15)');
+        shadeGrad.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+        ctx.fillStyle = shadeGrad;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+
+        // Top-to-bottom spherical shading for curvature
+        const curveGrad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
+        curveGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        curveGrad.addColorStop(0.7, 'rgba(0,0,0,0.05)');
+        curveGrad.addColorStop(0.9, 'rgba(0,0,0,0.2)');
+        curveGrad.addColorStop(1, 'rgba(0,0,0,0.45)');
+        ctx.fillStyle = curveGrad;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
         // BURNING ATMOSPHERE — strong from the start, intensifies
         ctx.globalCompositeOperation = 'lighter';
@@ -637,14 +785,15 @@ export class Game {
             ctx.globalCompositeOperation = 'lighter';
             const dx = Math.cos(d.angle);
             const dy = Math.sin(d.angle);
+            const b = d.brightness || 1;
 
             // Outer wide glow trail
             const glowGrad = ctx.createLinearGradient(
                 d.x, d.y,
                 d.x - dx * d.trailLen * 1.2, d.y - dy * d.trailLen * 1.2
             );
-            glowGrad.addColorStop(0, `rgba(255, 180, 80, 0.5)`);
-            glowGrad.addColorStop(0.4, 'rgba(255, 80, 20, 0.15)');
+            glowGrad.addColorStop(0, `rgba(255, 180, 80, ${0.5 * b})`);
+            glowGrad.addColorStop(0.4, `rgba(255, 80, 20, ${0.15 * b})`);
             glowGrad.addColorStop(1, 'rgba(200, 30, 0, 0)');
             ctx.strokeStyle = glowGrad;
             ctx.lineWidth = d.size * 4;
@@ -659,8 +808,8 @@ export class Game {
                 d.x, d.y,
                 d.x - dx * d.trailLen, d.y - dy * d.trailLen
             );
-            coreGrad.addColorStop(0, 'rgba(255, 255, 230, 0.9)');
-            coreGrad.addColorStop(0.3, 'rgba(255, 200, 100, 0.5)');
+            coreGrad.addColorStop(0, `rgba(255, 255, 230, ${0.9 * b})`);
+            coreGrad.addColorStop(0.3, `rgba(255, 200, 100, ${0.5 * b})`);
             coreGrad.addColorStop(1, 'rgba(255, 80, 0, 0)');
             ctx.strokeStyle = coreGrad;
             ctx.lineWidth = d.size;
@@ -671,8 +820,8 @@ export class Game {
 
             // Bright head with flare
             let headGrad = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.size * 3);
-            headGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-            headGrad.addColorStop(0.4, 'rgba(255, 200, 100, 0.5)');
+            headGrad.addColorStop(0, `rgba(255, 255, 255, ${b})`);
+            headGrad.addColorStop(0.4, `rgba(255, 200, 100, ${0.5 * b})`);
             headGrad.addColorStop(1, 'rgba(255, 100, 0, 0)');
             ctx.fillStyle = headGrad;
             ctx.beginPath();
@@ -793,7 +942,9 @@ export class Game {
 
         this.enemies.forEach(e => e.draw(ctx));
         this.towers.forEach(t => t.draw(ctx));
+        this.explosions.forEach(ex => ex.draw(ctx));
         this.particles.forEach(p => p.draw(ctx));
+        this.damageTexts.forEach(dt => dt.draw(ctx));
 
         // ============================================================
         // 10. POST-PROCESSING: Vignette + Shield Line
@@ -864,6 +1015,8 @@ class Enemy extends Entity {
         this.sparks = [];
         // Slow effect (applied by shield generators each frame)
         this.slowFactor = 1;
+        this.type = 'standard';
+        this.headScale = 1.0;
     }
 
     update(dt) {
@@ -877,17 +1030,29 @@ class Enemy extends Entity {
         this.y += Math.sin(this.angle) * effectiveSpeed * dt;
         this.x += Math.sin(this.y * 0.05) * 0.5;
 
-        // Spawn sparks that break off from the trail
-        if (Math.random() > 0.6 && this.trail.length > 5) {
-            let src = this.trail[this.trail.length - Math.floor(Math.random() * 5) - 1];
+        // Spawn sparks that break off from the trail — more frequent, more variety
+        if (Math.random() > 0.4 && this.trail.length > 3) {
+            let src = this.trail[this.trail.length - Math.floor(Math.random() * 3) - 1];
             this.sparks.push({
-                x: src.x + (Math.random() - 0.5) * 6,
-                y: src.y + (Math.random() - 0.5) * 6,
-                vx: (Math.random() - 0.5) * 0.15,
-                vy: (Math.random() - 0.5) * 0.15 + 0.05,
-                life: 150 + Math.random() * 200,
-                maxLife: 350,
-                size: 0.5 + Math.random() * 1.5
+                x: src.x + (Math.random() - 0.5) * 8,
+                y: src.y + (Math.random() - 0.5) * 8,
+                vx: (Math.random() - 0.5) * 0.2,
+                vy: (Math.random() - 0.5) * 0.15 + 0.06,
+                life: 200 + Math.random() * 300,
+                maxLife: 500,
+                size: 0.5 + Math.random() * 2.5
+            });
+        }
+        // Extra ember particles
+        if (Math.random() > 0.7) {
+            this.sparks.push({
+                x: this.x + (Math.random() - 0.5) * 10,
+                y: this.y + (Math.random() - 0.5) * 10,
+                vx: (Math.random() - 0.5) * 0.3,
+                vy: Math.random() * 0.1 + 0.02,
+                life: 100 + Math.random() * 150,
+                maxLife: 250,
+                size: 0.3 + Math.random() * 1
             });
         }
         // Update sparks
@@ -907,18 +1072,13 @@ class Enemy extends Entity {
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
 
-        // 1. Outer glow trail (wide, soft, orange-red)
+        // 1. Ultra-wide ambient glow trail
         for (let i = 1; i < len; i++) {
             let t0 = this.trail[i - 1];
             let t1 = this.trail[i];
             let ratio = i / len;
-
-            let width = ratio < 0.85
-                ? ratio * 16
-                : (1 - (ratio - 0.85) / 0.15) * 16;
-
-            let alpha = ratio * 0.4;
-            ctx.strokeStyle = `rgba(255, ${Math.floor(40 + ratio * 130)}, ${Math.floor(ratio * 30)}, ${alpha})`;
+            let width = ratio < 0.85 ? ratio * 24 : (1 - (ratio - 0.85) / 0.15) * 24;
+            ctx.strokeStyle = `rgba(255, ${Math.floor(30 + ratio * 60)}, 0, ${ratio * 0.15})`;
             ctx.lineWidth = width;
             ctx.lineCap = 'round';
             ctx.beginPath();
@@ -927,17 +1087,13 @@ class Enemy extends Entity {
             ctx.stroke();
         }
 
-        // 2. Inner core trail (narrow, white-hot)
+        // 2. Outer glow trail (wide, orange-red)
         for (let i = 1; i < len; i++) {
             let t0 = this.trail[i - 1];
             let t1 = this.trail[i];
             let ratio = i / len;
-
-            let width = ratio < 0.85
-                ? ratio * 6
-                : (1 - (ratio - 0.85) / 0.15) * 6;
-
-            ctx.strokeStyle = `rgba(255, 255, ${Math.floor(200 + ratio * 55)}, ${ratio * 0.8})`;
+            let width = ratio < 0.85 ? ratio * 14 : (1 - (ratio - 0.85) / 0.15) * 14;
+            ctx.strokeStyle = `rgba(255, ${Math.floor(50 + ratio * 140)}, ${Math.floor(ratio * 30)}, ${ratio * 0.45})`;
             ctx.lineWidth = width;
             ctx.lineCap = 'round';
             ctx.beginPath();
@@ -946,36 +1102,116 @@ class Enemy extends Entity {
             ctx.stroke();
         }
 
-        // 3. Sparks breaking off
+        // 3. Inner core trail (narrow, white-hot)
+        for (let i = 1; i < len; i++) {
+            let t0 = this.trail[i - 1];
+            let t1 = this.trail[i];
+            let ratio = i / len;
+            let width = ratio < 0.85 ? ratio * 6 : (1 - (ratio - 0.85) / 0.15) * 6;
+            ctx.strokeStyle = `rgba(255, 255, ${Math.floor(200 + ratio * 55)}, ${ratio * 0.85})`;
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(t0.x, t0.y);
+            ctx.lineTo(t1.x, t1.y);
+            ctx.stroke();
+        }
+
+        // 4. Sparks breaking off - with glow
         this.sparks.forEach(s => {
             let a = s.life / s.maxLife;
-            ctx.fillStyle = `rgba(255, ${150 + Math.floor(Math.random() * 100)}, 50, ${a * 0.8})`;
+            let sz = s.size * a;
+            if (sz < 0.1) return;
+            // Soft glow halo
+            let sparkGrad = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, sz * 4);
+            sparkGrad.addColorStop(0, `rgba(255, ${180 + Math.floor(Math.random() * 75)}, 50, ${a * 0.5})`);
+            sparkGrad.addColorStop(1, 'rgba(255, 80, 0, 0)');
+            ctx.fillStyle = sparkGrad;
             ctx.beginPath();
-            ctx.arc(s.x, s.y, s.size * a, 0, Math.PI * 2);
+            ctx.arc(s.x, s.y, sz * 4, 0, Math.PI * 2);
+            ctx.fill();
+            // Bright core
+            ctx.fillStyle = `rgba(255, 255, ${200 + Math.floor(Math.random() * 55)}, ${a * 0.9})`;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, sz * 0.6, 0, Math.PI * 2);
             ctx.fill();
         });
 
-        // 4. Meteor HEAD — just a bright glowing ball, no arrow shape
-        ctx.shadowBlur = 30;
+        // 5. Meteor HEAD — scaled by headScale, colored by type
+        const hs = this.headScale;
+        ctx.shadowBlur = 40 * hs;
         ctx.shadowColor = '#ffaa00';
 
-        // Wide halo
-        let headGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 22);
+        // Ultra-wide ambient halo
+        let ambientGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 35 * hs);
+        ambientGrad.addColorStop(0, 'rgba(255, 200, 80, 0.4)');
+        ambientGrad.addColorStop(0.5, 'rgba(255, 100, 20, 0.1)');
+        ambientGrad.addColorStop(1, 'rgba(255, 40, 0, 0)');
+        ctx.fillStyle = ambientGrad;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 35 * hs, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Main halo
+        let headGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 22 * hs);
         headGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-        headGrad.addColorStop(0.15, 'rgba(255, 240, 180, 0.8)');
-        headGrad.addColorStop(0.4, 'rgba(255, 150, 50, 0.3)');
-        headGrad.addColorStop(0.7, 'rgba(255, 80, 10, 0.1)');
+        headGrad.addColorStop(0.15, 'rgba(255, 240, 180, 0.85)');
+        headGrad.addColorStop(0.4, 'rgba(255, 150, 50, 0.35)');
+        headGrad.addColorStop(0.7, 'rgba(255, 80, 10, 0.12)');
         headGrad.addColorStop(1, 'rgba(255, 40, 0, 0)');
         ctx.fillStyle = headGrad;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, 22, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, 22 * hs, 0, Math.PI * 2);
         ctx.fill();
 
         // White-hot core
         ctx.fillStyle = '#fff';
         ctx.beginPath();
-        ctx.arc(this.x, this.y, 4, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, 5 * hs, 0, Math.PI * 2);
         ctx.fill();
+
+        // Type-specific head overlay
+        if (this.type === 'tank') {
+            let tankGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 2);
+            tankGrad.addColorStop(0, 'rgba(255, 30, 30, 0.5)');
+            tankGrad.addColorStop(0.5, 'rgba(200, 0, 0, 0.15)');
+            tankGrad.addColorStop(1, 'rgba(150, 0, 0, 0)');
+            ctx.fillStyle = tankGrad;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+            ctx.fill();
+            // Rocky ring
+            ctx.strokeStyle = 'rgba(255, 100, 50, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 1.2, 0, Math.PI * 2);
+            ctx.stroke();
+        } else if (this.type === 'swarm') {
+            let swarmGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 2);
+            swarmGrad.addColorStop(0, 'rgba(0, 255, 150, 0.35)');
+            swarmGrad.addColorStop(1, 'rgba(0, 200, 100, 0)');
+            ctx.fillStyle = swarmGrad;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (this.type === 'splitter') {
+            let pulseAlpha = 0.3 + Math.sin(Date.now() * 0.008) * 0.15;
+            let splitGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 2.5);
+            splitGrad.addColorStop(0, `rgba(180, 50, 255, ${pulseAlpha})`);
+            splitGrad.addColorStop(0.6, `rgba(120, 20, 200, ${pulseAlpha * 0.4})`);
+            splitGrad.addColorStop(1, 'rgba(80, 0, 150, 0)');
+            ctx.fillStyle = splitGrad;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            // Unstable ring pulse
+            ctx.strokeStyle = `rgba(200, 100, 255, ${pulseAlpha * 0.6})`;
+            ctx.lineWidth = 1;
+            let ringR = this.size * (1.3 + Math.sin(Date.now() * 0.006) * 0.3);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, ringR, 0, Math.PI * 2);
+            ctx.stroke();
+        }
 
         ctx.shadowBlur = 0;
         ctx.globalCompositeOperation = 'source-over';
@@ -991,6 +1227,47 @@ class Enemy extends Entity {
         }
 
         ctx.restore();
+    }
+}
+
+class TankEnemy extends Enemy {
+    constructor(x, y, targetX, targetY, wave, planetApproach) {
+        super(x, y, targetX, targetY, wave, planetApproach);
+        this.hp = 60 + wave * 25;
+        this.maxHp = this.hp;
+        this.speed *= 0.4;
+        this.size = 22;
+        this.reward = 35;
+        this.trailMax = 25;
+        this.type = 'tank';
+        this.headScale = 1.6;
+    }
+}
+
+class SwarmEnemy extends Enemy {
+    constructor(x, y, targetX, targetY, wave, planetApproach) {
+        super(x, y, targetX, targetY, wave, planetApproach);
+        this.hp = 6 + wave * 3;
+        this.maxHp = this.hp;
+        this.speed *= 1.9;
+        this.size = 7;
+        this.reward = 5;
+        this.trailMax = 18;
+        this.type = 'swarm';
+        this.headScale = 0.5;
+    }
+}
+
+class SplitterEnemy extends Enemy {
+    constructor(x, y, targetX, targetY, wave, planetApproach) {
+        super(x, y, targetX, targetY, wave, planetApproach);
+        this.hp = 35 + wave * 15;
+        this.maxHp = this.hp;
+        this.speed *= 0.7;
+        this.size = 17;
+        this.reward = 20;
+        this.type = 'splitter';
+        this.headScale = 1.2;
     }
 }
 
@@ -1230,6 +1507,8 @@ class LaserTower extends Entity {
         this.aimAngle = 0;
         this.beamIntensity = 0;
         this.beamFlicker = 0;
+        this.dmgTextTimer = 0;
+        this.dmgAccum = 0;
     }
 
     update(dt, enemies, game) {
@@ -1256,7 +1535,16 @@ class LaserTower extends Entity {
             this.beamFlicker = 0.85 + Math.random() * 0.15;
 
             // Continuous damage
-            this.target.hp -= this.dps * (dt / 1000) * this.beamIntensity;
+            const laserDmg = this.dps * (dt / 1000) * this.beamIntensity;
+            this.target.hp -= laserDmg;
+            this.dmgAccum += laserDmg;
+            this.dmgTextTimer -= dt;
+            if (this.dmgTextTimer <= 0 && this.dmgAccum > 0) {
+                game.spawnDamageText(this.target.x, this.target.y - 15, Math.round(this.dmgAccum), '#ff6688');
+                game.spawnParticles(this.target.x, this.target.y, 2, '#ff3366');
+                this.dmgAccum = 0;
+                this.dmgTextTimer = 220;
+            }
         } else {
             this.beamIntensity *= 0.9;
         }
@@ -1270,43 +1558,60 @@ class LaserTower extends Entity {
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             const intensity = this.beamIntensity * this.beamFlicker;
+            const tx = this.target.x;
+            const ty = this.target.y;
 
-            // Wide glow beam
-            ctx.strokeStyle = `rgba(255, 50, 100, ${intensity * 0.25})`;
-            ctx.lineWidth = 10 * intensity;
+            // Layer 1: Ultra-wide soft glow
+            ctx.strokeStyle = `rgba(255, 30, 60, ${intensity * 0.12})`;
+            ctx.lineWidth = 22 * intensity;
             ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
-            ctx.lineTo(this.target.x, this.target.y);
+            ctx.lineTo(tx, ty);
             ctx.stroke();
 
-            // Mid beam
-            ctx.strokeStyle = `rgba(255, 120, 160, ${intensity * 0.5})`;
-            ctx.lineWidth = 4 * intensity;
+            // Layer 2: Wide glow beam
+            ctx.strokeStyle = `rgba(255, 50, 100, ${intensity * 0.3})`;
+            ctx.lineWidth = 12 * intensity;
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
-            ctx.lineTo(this.target.x, this.target.y);
+            ctx.lineTo(tx, ty);
             ctx.stroke();
 
-            // Core beam (white-hot)
-            ctx.strokeStyle = `rgba(255, 220, 240, ${intensity * 0.9})`;
-            ctx.lineWidth = 1.5 * intensity;
+            // Layer 3: Mid beam
+            ctx.strokeStyle = `rgba(255, 140, 180, ${intensity * 0.55})`;
+            ctx.lineWidth = 5 * intensity;
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
-            ctx.lineTo(this.target.x, this.target.y);
+            ctx.lineTo(tx, ty);
             ctx.stroke();
 
-            // Hit point glow
-            let hitGrad = ctx.createRadialGradient(
-                this.target.x, this.target.y, 0,
-                this.target.x, this.target.y, 18
-            );
-            hitGrad.addColorStop(0, `rgba(255, 200, 220, ${intensity * 0.8})`);
-            hitGrad.addColorStop(0.4, `rgba(255, 80, 130, ${intensity * 0.3})`);
+            // Layer 4: Core beam (white-hot)
+            ctx.strokeStyle = `rgba(255, 230, 245, ${intensity * 0.9})`;
+            ctx.lineWidth = 2 * intensity;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(tx, ty);
+            ctx.stroke();
+
+            // Hit point glow - larger, brighter
+            let hitGrad = ctx.createRadialGradient(tx, ty, 0, tx, ty, 30);
+            hitGrad.addColorStop(0, `rgba(255, 255, 255, ${intensity * 0.7})`);
+            hitGrad.addColorStop(0.2, `rgba(255, 200, 220, ${intensity * 0.5})`);
+            hitGrad.addColorStop(0.5, `rgba(255, 80, 130, ${intensity * 0.25})`);
             hitGrad.addColorStop(1, 'rgba(255, 50, 100, 0)');
             ctx.fillStyle = hitGrad;
             ctx.beginPath();
-            ctx.arc(this.target.x, this.target.y, 18, 0, Math.PI * 2);
+            ctx.arc(tx, ty, 30, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Origin glow at tower
+            let originGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 15);
+            originGrad.addColorStop(0, `rgba(255, 200, 220, ${intensity * 0.5})`);
+            originGrad.addColorStop(1, 'rgba(255, 50, 100, 0)');
+            ctx.fillStyle = originGrad;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 15, 0, Math.PI * 2);
             ctx.fill();
 
             ctx.globalCompositeOperation = 'source-over';
@@ -1400,6 +1705,7 @@ class ShieldGenerator extends Entity {
         this.isActive = true;
         this.rechargeTimer = 0;
         this.hitFlash = 0;
+        this.dmgTextTimer = 0;
     }
 
     update(dt, enemies, game) {
@@ -1416,8 +1722,10 @@ class ShieldGenerator extends Entity {
         // Regenerate shield
         this.shieldHp = Math.min(this.maxShieldHp, this.shieldHp + this.regenRate * (dt / 1000));
         this.hitFlash *= 0.92;
+        this.dmgTextTimer -= dt;
 
         // Affect enemies inside shield
+        let shieldDmgShown = false;
         for (let e of enemies) {
             if (e.hp <= 0) continue;
             let dist = Math.hypot(e.x - this.x, e.y - this.y);
@@ -1426,6 +1734,12 @@ class ShieldGenerator extends Entity {
                 e.slowFactor = this.slowAmount;
                 // Damage enemy
                 e.hp -= this.dps * (dt / 1000);
+                // Show damage text periodically
+                if (!shieldDmgShown && this.dmgTextTimer <= 0) {
+                    game.spawnDamageText(e.x, e.y - 15, Math.round(this.dps * 0.35), '#88bbff');
+                    shieldDmgShown = true;
+                    this.dmgTextTimer = 350;
+                }
                 // Shield takes strain from contact
                 this.shieldHp -= 0.3 * (dt / 16);
                 this.hitFlash = 0.6;
@@ -1443,47 +1757,102 @@ class ShieldGenerator extends Entity {
     draw(ctx) {
         const time = Date.now();
 
-        // Shield dome
+        // Shield dome with hexagonal tessellation
         if (this.isActive) {
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             const hpRatio = this.shieldHp / this.maxShieldHp;
             const pulse = Math.sin(time * 0.003) * 0.05;
+            const R = this.shieldRadius;
+            const cx = this.x;
+            const cy = this.y;
 
-            // Dome fill
-            let domeGrad = ctx.createRadialGradient(
-                this.x, this.y, this.shieldRadius * 0.6,
-                this.x, this.y, this.shieldRadius
-            );
-            domeGrad.addColorStop(0, 'rgba(0,0,0,0)');
-            domeGrad.addColorStop(0.5, `rgba(40, 100, 255, ${(0.02 + pulse) * hpRatio})`);
-            domeGrad.addColorStop(0.85, `rgba(60, 140, 255, ${(0.06 + pulse + this.hitFlash * 0.15) * hpRatio})`);
-            domeGrad.addColorStop(1, `rgba(100, 180, 255, ${(0.12 + pulse + this.hitFlash * 0.3) * hpRatio})`);
+            // Clip to dome circle
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, R, 0, Math.PI * 2);
+            ctx.clip();
+
+            // AT Field dome fill — vivid energy field
+            let domeGrad = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R);
+            domeGrad.addColorStop(0, `rgba(20, 80, 255, ${(0.03 + pulse) * hpRatio})`);
+            domeGrad.addColorStop(0.4, `rgba(40, 120, 255, ${(0.06 + pulse + this.hitFlash * 0.15) * hpRatio})`);
+            domeGrad.addColorStop(0.75, `rgba(60, 150, 255, ${(0.12 + pulse + this.hitFlash * 0.3) * hpRatio})`);
+            domeGrad.addColorStop(1, `rgba(100, 200, 255, ${(0.25 + pulse + this.hitFlash * 0.5) * hpRatio})`);
             ctx.fillStyle = domeGrad;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.shieldRadius, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
 
-            // Dome edge ring
-            ctx.strokeStyle = `rgba(100, 200, 255, ${(0.2 + pulse + this.hitFlash * 0.4) * hpRatio})`;
-            ctx.lineWidth = 1.5;
+            // Hexagonal honeycomb grid — AT Field style
+            const hexR = 18;
+            const hexH = hexR * Math.sqrt(3);
+            const hexW = hexR * 2;
+            const gridRange = Math.ceil(R / hexR) + 1;
+            const baseAlpha = (0.25 + pulse * 0.6 + this.hitFlash * 0.5) * hpRatio;
+
+            for (let row = -gridRange; row <= gridRange; row++) {
+                for (let col = -gridRange; col <= gridRange; col++) {
+                    const offset = (Math.abs(col) % 2 === 1) ? hexH * 0.5 : 0;
+                    const hx = col * hexW * 0.75;
+                    const hy = row * hexH + offset;
+                    const dist = Math.hypot(hx, hy);
+                    if (dist > R + hexR * 0.5) continue;
+
+                    // Energy wave + edge brightening
+                    const edgeFactor = Math.pow(dist / R, 1.2);
+                    const wave = Math.sin(dist * 0.05 - time * 0.005) * 0.5 + 0.5;
+                    const cellAlpha = baseAlpha * (0.35 + edgeFactor * 0.65) * (0.6 + wave * 0.4);
+
+                    // Fill each hex cell with translucent energy
+                    ctx.beginPath();
+                    for (let v = 0; v < 6; v++) {
+                        const a = (Math.PI / 3) * v + Math.PI / 6;
+                        const vx = cx + hx + Math.cos(a) * hexR * 0.88;
+                        const vy = cy + hy + Math.sin(a) * hexR * 0.88;
+                        if (v === 0) ctx.moveTo(vx, vy);
+                        else ctx.lineTo(vx, vy);
+                    }
+                    ctx.closePath();
+
+                    // Cell fill — visible even without hit
+                    const fillAlpha = cellAlpha * (0.12 + edgeFactor * 0.2 + this.hitFlash * edgeFactor * 0.4);
+                    ctx.fillStyle = `rgba(100, 180, 255, ${fillAlpha})`;
+                    ctx.fill();
+
+                    // Bright hex border lines
+                    ctx.strokeStyle = `rgba(130, 210, 255, ${cellAlpha})`;
+                    ctx.lineWidth = 1.0 + edgeFactor * 1.0;
+                    ctx.stroke();
+
+                    // Hit flash: cells near edge flare bright
+                    if (this.hitFlash > 0.1 && edgeFactor > 0.5) {
+                        ctx.fillStyle = `rgba(200, 240, 255, ${this.hitFlash * edgeFactor * 0.25 * hpRatio})`;
+                        ctx.fill();
+                    }
+                }
+            }
+
+            ctx.restore(); // Unclip
+
+            // Dome edge — bold AT Field boundary ring
+            ctx.strokeStyle = `rgba(100, 200, 255, ${(0.7 + pulse + this.hitFlash * 0.3) * hpRatio})`;
+            ctx.lineWidth = 2.5;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.shieldRadius, 0, Math.PI * 2);
+            ctx.arc(cx, cy, R, 0, Math.PI * 2);
             ctx.stroke();
 
-            // Hexagonal energy lines
-            for (let i = 0; i < 6; i++) {
-                let a = (Math.PI / 3) * i + time * 0.0004;
-                let r = this.shieldRadius * 0.7;
-                let hx = this.x + Math.cos(a) * r;
-                let hy = this.y + Math.sin(a) * r;
-                ctx.strokeStyle = `rgba(80, 160, 255, ${0.06 * hpRatio})`;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(this.x, this.y);
-                ctx.lineTo(hx, hy);
-                ctx.stroke();
-            }
+            // Outer glow ring
+            ctx.strokeStyle = `rgba(60, 150, 255, ${(0.35 + this.hitFlash * 0.5) * hpRatio})`;
+            ctx.lineWidth = 8;
+            ctx.beginPath();
+            ctx.arc(cx, cy, R + 4, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Inner crisp ring
+            ctx.strokeStyle = `rgba(180, 230, 255, ${(0.25 + pulse) * hpRatio})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(cx, cy, R - 3, 0, Math.PI * 2);
+            ctx.stroke();
 
             ctx.globalCompositeOperation = 'source-over';
             ctx.restore();
@@ -1545,6 +1914,324 @@ class ShieldGenerator extends Entity {
     }
 }
 
+class MissileTower extends Entity {
+    constructor(x, y) {
+        super(x, y);
+        this.range = 550;
+        this.damage = 45;
+        this.splashRadius = 65;
+        this.fireRate = 1600;
+        this.cooldown = 0;
+        this.color = '#ff8800';
+        this.target = null;
+        this.aimAngle = -Math.PI / 2;
+        this.flashTimer = 0;
+    }
+
+    update(dt, enemies, game) {
+        this.cooldown -= dt;
+        this.flashTimer -= dt;
+        this.target = null;
+        let maxHp = 0;
+        for (let e of enemies) {
+            if (e.hp <= 0) continue;
+            let dist = Math.hypot(e.x - this.x, e.y - this.y);
+            if (dist < this.range && e.hp > maxHp) {
+                maxHp = e.hp;
+                this.target = e;
+            }
+        }
+        if (this.target) {
+            let desired = Math.atan2(this.target.y - this.y, this.target.x - this.x);
+            let diff = desired - this.aimAngle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            this.aimAngle += diff * 0.1;
+        }
+        if (this.target && this.cooldown <= 0) {
+            game.projectiles.push(new HomingMissile(this.x, this.y, this.target, this.damage, this.splashRadius));
+            this.cooldown = this.fireRate;
+            this.flashTimer = 120;
+            game.screenShake = Math.max(game.screenShake, 1.5);
+        }
+    }
+
+    draw(ctx) {
+        const time = Date.now();
+        // Ground tether
+        const tGrad = ctx.createLinearGradient(this.x, this.y + 10, this.x, ctx.canvas.height);
+        tGrad.addColorStop(0, 'rgba(255, 136, 0, 0.12)');
+        tGrad.addColorStop(1, 'rgba(200, 80, 0, 0)');
+        ctx.strokeStyle = tGrad;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y + 12);
+        ctx.lineTo(this.x, ctx.canvas.height);
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // Square base
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = this.color;
+        ctx.fillStyle = '#181008';
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(-10, -10, 20, 20);
+        ctx.strokeRect(-10, -10, 20, 20);
+
+        // Launcher barrel
+        ctx.save();
+        ctx.rotate(this.aimAngle);
+        ctx.fillStyle = '#333';
+        ctx.fillRect(4, -4, 16, 8);
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(4, -4, 16, 8);
+        // Missile tip indicator
+        ctx.fillStyle = this.color;
+        ctx.fillRect(18, -2, 4, 4);
+
+        // Launch flash
+        if (this.flashTimer > 0) {
+            ctx.globalCompositeOperation = 'lighter';
+            let fa = this.flashTimer / 120;
+            let flashGrad = ctx.createRadialGradient(20, 0, 0, 20, 0, 14);
+            flashGrad.addColorStop(0, `rgba(255, 200, 100, ${fa})`);
+            flashGrad.addColorStop(1, 'rgba(255, 100, 0, 0)');
+            ctx.fillStyle = flashGrad;
+            ctx.beginPath();
+            ctx.arc(20, 0, 14, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+        }
+        ctx.restore();
+
+        // Center core
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Spinning ring
+        ctx.strokeStyle = 'rgba(255, 136, 0, 0.4)';
+        ctx.lineWidth = 1;
+        let spin = time * 0.003;
+        ctx.beginPath();
+        ctx.arc(0, 0, 7, spin, spin + Math.PI);
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+}
+
+class TeslaTower extends Entity {
+    constructor(x, y) {
+        super(x, y);
+        this.range = 280;
+        this.dps = 22;
+        this.chainCount = 4;
+        this.chainRange = 130;
+        this.color = '#aaeeff';
+        this.targets = [];
+        this.dmgTextTimer = 0;
+        this.arcSeed = 0;
+    }
+
+    update(dt, enemies, game) {
+        this.dmgTextTimer -= dt;
+        this.targets = [];
+
+        let primary = null;
+        let minDist = this.range;
+        for (let e of enemies) {
+            if (e.hp <= 0) continue;
+            let dist = Math.hypot(e.x - this.x, e.y - this.y);
+            if (dist < minDist) {
+                minDist = dist;
+                primary = e;
+            }
+        }
+
+        if (primary) {
+            this.targets.push(primary);
+            let last = primary;
+            for (let c = 0; c < this.chainCount - 1; c++) {
+                let next = null;
+                let nextDist = this.chainRange;
+                for (let e of enemies) {
+                    if (e.hp <= 0 || this.targets.includes(e)) continue;
+                    let dist = Math.hypot(e.x - last.x, e.y - last.y);
+                    if (dist < nextDist) {
+                        nextDist = dist;
+                        next = e;
+                    }
+                }
+                if (next) {
+                    this.targets.push(next);
+                    last = next;
+                } else break;
+            }
+
+            for (let t of this.targets) {
+                t.hp -= this.dps * (dt / 1000);
+            }
+
+            if (this.dmgTextTimer <= 0 && this.targets.length > 0) {
+                for (let t of this.targets) {
+                    game.spawnDamageText(t.x, t.y - 15, Math.round(this.dps * 0.28), '#aaeeff');
+                }
+                this.dmgTextTimer = 280;
+            }
+        }
+
+        // Refresh arc shape periodically
+        if (Math.random() > 0.7) this.arcSeed = Math.random() * 1000;
+    }
+
+    drawArc(ctx, x1, y1, x2, y2) {
+        const segments = 7;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const dist = Math.hypot(dx, dy);
+        const jitter = dist * 0.12;
+        const seed = this.arcSeed;
+
+        let pts = [{ x: x1, y: y1 }];
+        for (let i = 1; i < segments; i++) {
+            let t = i / segments;
+            pts.push({
+                x: x1 + dx * t + Math.sin(seed + i * 7.3) * jitter,
+                y: y1 + dy * t + Math.cos(seed + i * 5.1) * jitter
+            });
+        }
+        pts.push({ x: x2, y: y2 });
+
+        // Wide glow
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.25)';
+        ctx.lineWidth = 6;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.stroke();
+
+        // Mid
+        ctx.strokeStyle = 'rgba(180, 230, 255, 0.5)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.stroke();
+
+        // Core
+        ctx.strokeStyle = 'rgba(240, 250, 255, 0.85)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.stroke();
+    }
+
+    draw(ctx) {
+        const time = Date.now();
+
+        // Chain lightning arcs
+        if (this.targets.length > 0) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            let points = [{ x: this.x, y: this.y }, ...this.targets.map(t => ({ x: t.x, y: t.y }))];
+            for (let i = 0; i < points.length - 1; i++) {
+                this.drawArc(ctx, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
+            }
+            // Hit point sparks
+            for (let t of this.targets) {
+                let sparkGrad = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, 12);
+                sparkGrad.addColorStop(0, 'rgba(200, 240, 255, 0.6)');
+                sparkGrad.addColorStop(1, 'rgba(100, 200, 255, 0)');
+                ctx.fillStyle = sparkGrad;
+                ctx.beginPath();
+                ctx.arc(t.x, t.y, 12, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.restore();
+        }
+
+        // Ground tether
+        const tGrad = ctx.createLinearGradient(this.x, this.y + 10, this.x, ctx.canvas.height);
+        tGrad.addColorStop(0, 'rgba(170, 238, 255, 0.12)');
+        tGrad.addColorStop(1, 'rgba(100, 180, 255, 0)');
+        ctx.strokeStyle = tGrad;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y + 12);
+        ctx.lineTo(this.x, ctx.canvas.height);
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // Triangle base
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = this.color;
+        ctx.fillStyle = '#081018';
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -12);
+        ctx.lineTo(10, 8);
+        ctx.lineTo(-10, 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Tesla coil top
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, -8);
+        ctx.lineTo(0, -16);
+        ctx.stroke();
+
+        // Coil tip spark
+        if (this.targets.length > 0) {
+            ctx.globalCompositeOperation = 'lighter';
+            let sparkGrad = ctx.createRadialGradient(0, -16, 0, 0, -16, 8);
+            sparkGrad.addColorStop(0, 'rgba(220, 245, 255, 0.8)');
+            sparkGrad.addColorStop(0.5, 'rgba(100, 200, 255, 0.3)');
+            sparkGrad.addColorStop(1, 'rgba(50, 150, 255, 0)');
+            ctx.fillStyle = sparkGrad;
+            ctx.beginPath();
+            ctx.arc(0, -16, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        // Center core
+        ctx.fillStyle = this.targets.length > 0 ? '#fff' : this.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Spinning arcs
+        let spin = time * 0.005;
+        ctx.strokeStyle = 'rgba(170, 238, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(0, -4, 7, spin, spin + Math.PI * 0.8);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, -4, 7, spin + Math.PI, spin + Math.PI * 1.8);
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+}
+
 class Projectile extends Entity {
     constructor(x, y, target, damage) {
         super(x, y);
@@ -1570,29 +2257,40 @@ class Projectile extends Entity {
 
     draw(ctx) {
         ctx.save();
-
-        // Outer glow trail
         ctx.globalCompositeOperation = 'lighter';
-        const tailX = this.x - this.vx * 30;
-        const tailY = this.y - this.vy * 30;
 
-        // Wide soft glow
-        const glowGrad = ctx.createLinearGradient(this.x, this.y, tailX, tailY);
-        glowGrad.addColorStop(0, 'rgba(0, 243, 255, 0.6)');
-        glowGrad.addColorStop(0.5, 'rgba(0, 150, 255, 0.2)');
-        glowGrad.addColorStop(1, 'rgba(0, 50, 200, 0)');
-        ctx.strokeStyle = glowGrad;
-        ctx.lineWidth = 6;
+        const tailX = this.x - this.vx * 35;
+        const tailY = this.y - this.vy * 35;
+
+        // Layer 1: Ultra-wide outer glow
+        const outerGrad = ctx.createLinearGradient(this.x, this.y, tailX, tailY);
+        outerGrad.addColorStop(0, 'rgba(0, 200, 255, 0.35)');
+        outerGrad.addColorStop(0.4, 'rgba(0, 100, 255, 0.1)');
+        outerGrad.addColorStop(1, 'rgba(0, 50, 200, 0)');
+        ctx.strokeStyle = outerGrad;
+        ctx.lineWidth = 10;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(this.x, this.y);
         ctx.lineTo(tailX, tailY);
         ctx.stroke();
 
-        // Bright core beam
+        // Layer 2: Mid glow
+        const glowGrad = ctx.createLinearGradient(this.x, this.y, tailX, tailY);
+        glowGrad.addColorStop(0, 'rgba(0, 243, 255, 0.7)');
+        glowGrad.addColorStop(0.5, 'rgba(0, 150, 255, 0.3)');
+        glowGrad.addColorStop(1, 'rgba(0, 50, 200, 0)');
+        ctx.strokeStyle = glowGrad;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(tailX, tailY);
+        ctx.stroke();
+
+        // Layer 3: Bright core
         const coreGrad = ctx.createLinearGradient(this.x, this.y, tailX, tailY);
-        coreGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
-        coreGrad.addColorStop(0.4, 'rgba(150, 230, 255, 0.6)');
+        coreGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+        coreGrad.addColorStop(0.3, 'rgba(180, 240, 255, 0.7)');
         coreGrad.addColorStop(1, 'rgba(0, 150, 255, 0)');
         ctx.strokeStyle = coreGrad;
         ctx.lineWidth = 2;
@@ -1601,12 +2299,115 @@ class Projectile extends Entity {
         ctx.lineTo(tailX, tailY);
         ctx.stroke();
 
-        // Bright head point
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = '#00f3ff';
-        ctx.fillStyle = '#fff';
+        // Bright head with flare
+        let headGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 8);
+        headGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        headGrad.addColorStop(0.3, 'rgba(150, 240, 255, 0.6)');
+        headGrad.addColorStop(1, 'rgba(0, 150, 255, 0)');
+        ctx.fillStyle = headGrad;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
+    }
+}
+
+class HomingMissile extends Entity {
+    constructor(x, y, target, damage, splashRadius) {
+        super(x, y);
+        this.target = target;
+        this.damage = damage;
+        this.splash = splashRadius;
+        this.speed = 0.55;
+        this.life = 3000;
+        this.size = 4;
+        this.angle = Math.atan2(target.y - y, target.x - x);
+        this.vx = Math.cos(this.angle) * this.speed;
+        this.vy = Math.sin(this.angle) * this.speed;
+        this.trail = [];
+        this.trailMax = 14;
+        this.turnRate = 0.0035;
+        this.accel = 0.0004;
+    }
+
+    update(dt) {
+        this.trail.push({ x: this.x, y: this.y });
+        if (this.trail.length > this.trailMax) this.trail.shift();
+        this.life -= dt;
+
+        // Homing: steer toward target
+        if (this.target && this.target.hp > 0) {
+            let desired = Math.atan2(this.target.y - this.y, this.target.x - this.x);
+            let diff = desired - this.angle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            this.angle += Math.sign(diff) * Math.min(Math.abs(diff), this.turnRate * dt);
+        }
+
+        // Accelerate over time
+        this.speed = Math.min(this.speed + this.accel * dt, 1.8);
+        this.vx = Math.cos(this.angle) * this.speed;
+        this.vy = Math.sin(this.angle) * this.speed;
+
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        const tailLen = 40;
+        const tailX = this.x - Math.cos(this.angle) * tailLen;
+        const tailY = this.y - Math.sin(this.angle) * tailLen;
+
+        // Outer flame glow
+        const outerGrad = ctx.createLinearGradient(this.x, this.y, tailX, tailY);
+        outerGrad.addColorStop(0, 'rgba(255, 160, 0, 0.4)');
+        outerGrad.addColorStop(0.4, 'rgba(255, 80, 0, 0.15)');
+        outerGrad.addColorStop(1, 'rgba(200, 40, 0, 0)');
+        ctx.strokeStyle = outerGrad;
+        ctx.lineWidth = 12;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(tailX, tailY);
+        ctx.stroke();
+
+        // Mid flame
+        const midGrad = ctx.createLinearGradient(this.x, this.y, tailX, tailY);
+        midGrad.addColorStop(0, 'rgba(255, 200, 50, 0.7)');
+        midGrad.addColorStop(0.5, 'rgba(255, 120, 0, 0.3)');
+        midGrad.addColorStop(1, 'rgba(200, 50, 0, 0)');
+        ctx.strokeStyle = midGrad;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(tailX, tailY);
+        ctx.stroke();
+
+        // Core
+        const coreGrad = ctx.createLinearGradient(this.x, this.y, tailX, tailY);
+        coreGrad.addColorStop(0, 'rgba(255, 255, 220, 0.95)');
+        coreGrad.addColorStop(0.3, 'rgba(255, 220, 100, 0.6)');
+        coreGrad.addColorStop(1, 'rgba(255, 100, 0, 0)');
+        ctx.strokeStyle = coreGrad;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(tailX, tailY);
+        ctx.stroke();
+
+        // Missile head glow
+        let headGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 10);
+        headGrad.addColorStop(0, 'rgba(255, 255, 200, 1)');
+        headGrad.addColorStop(0.3, 'rgba(255, 180, 50, 0.6)');
+        headGrad.addColorStop(1, 'rgba(255, 100, 0, 0)');
+        ctx.fillStyle = headGrad;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 10, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.globalCompositeOperation = 'source-over';
@@ -1659,6 +2460,124 @@ class Particle {
         ctx.beginPath();
         ctx.arc(this.x, this.y, currentSize * 0.5, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
+}
+
+class DamageText {
+    constructor(x, y, amount, color) {
+        this.x = x + (Math.random() - 0.5) * 20;
+        this.y = y;
+        this.amount = Math.round(amount);
+        this.color = color;
+        this.life = 700;
+        this.maxLife = 700;
+        this.vy = -0.07;
+        this.scale = 0;
+    }
+
+    update(dt) {
+        this.y += this.vy * dt;
+        this.life -= dt;
+        const progress = 1 - this.life / this.maxLife;
+        if (progress < 0.12) {
+            this.scale = progress / 0.12;
+        } else {
+            this.scale = 1;
+        }
+    }
+
+    draw(ctx) {
+        const alpha = Math.max(0, this.life / this.maxLife);
+        if (alpha <= 0) return;
+
+        const fontSize = Math.floor(14 + this.scale * 4);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.font = `bold ${fontSize}px Orbitron, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Black outline
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.strokeText(`-${this.amount}`, this.x, this.y);
+
+        // Main text
+        ctx.fillStyle = this.color;
+        ctx.fillText(`-${this.amount}`, this.x, this.y);
+
+        // Glow on large hits
+        if (this.amount >= 10) {
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = alpha * 0.3;
+            ctx.fillStyle = this.color;
+            ctx.fillText(`-${this.amount}`, this.x, this.y);
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
+}
+
+class Explosion {
+    constructor(x, y, color, radius) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.maxRadius = radius;
+        this.radius = 0;
+        this.life = 350;
+        this.maxLife = 350;
+    }
+
+    update(dt) {
+        this.life -= dt;
+        const progress = 1 - this.life / this.maxLife;
+        this.radius = this.maxRadius * Math.pow(progress, 0.4);
+    }
+
+    draw(ctx) {
+        const alpha = Math.max(0, this.life / this.maxLife);
+        if (alpha <= 0) return;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        // Expanding ring
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 3 * alpha + 1;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Second thinner ring
+        ctx.globalAlpha = alpha * 0.4;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner flash (bright center that fades fast)
+        const flashAlpha = Math.pow(alpha, 2);
+        if (flashAlpha > 0.1) {
+            let grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius * 0.6);
+            grad.addColorStop(0, `rgba(255, 255, 255, ${flashAlpha * 0.5})`);
+            grad.addColorStop(0.3, `rgba(255, 200, 100, ${flashAlpha * 0.3})`);
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;

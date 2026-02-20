@@ -8,6 +8,10 @@ export class Game {
         this.accumulator = 0;
         this.tickRate = 1000 / 60;
 
+        // Asset loader
+        this.assets = {};
+        this.loadAsset('planet', 'assets/planet.jpeg');
+
         // Game State
         this.wave = 1;
         this.credits = 99999;
@@ -83,6 +87,12 @@ export class Game {
         this.height = this.canvas.height = window.innerHeight;
         this.generateCityLayers();
         this.generateClouds();
+    }
+
+    loadAsset(name, src) {
+        const img = new Image();
+        img.src = src;
+        img.onload = () => { this.assets[name] = img; };
     }
 
     generateStars(count) {
@@ -617,16 +627,101 @@ export class Game {
         ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
         ctx.clip();
 
-        // Base gradient — visible dark body, lighter center for depth
-        const planetGrad = ctx.createRadialGradient(cx, cy + ry * 0.15, ry * 0.1, cx, cy, Math.max(rx, ry));
-        planetGrad.addColorStop(0, '#251040');
-        planetGrad.addColorStop(0.25, '#1a0830');
-        planetGrad.addColorStop(0.5, '#120520');
-        planetGrad.addColorStop(0.8, '#080215');
-        planetGrad.addColorStop(1, '#03000a');
-        ctx.fillStyle = planetGrad;
-        ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
+        if (this.assets.planet) {
+            // Draw zoomed-in: crop center 70% of image to fill ellipse (hides image's own sky)
+            const img = this.assets.planet;
+            const crop = 0.15; // crop 15% from each edge
+            const sx = img.width * crop;
+            const sy = img.height * crop;
+            const sw = img.width * (1 - crop * 2);
+            const sh = img.height * (1 - crop * 2);
+            ctx.drawImage(img, sx, sy, sw, sh, cx - rx, cy - ry, rx * 2, ry * 2);
 
+            // Edge blend — dark vignette to merge with game sky
+            const edgeGrad = ctx.createRadialGradient(cx, cy, Math.min(rx, ry) * 0.4, cx, cy, Math.max(rx, ry));
+            edgeGrad.addColorStop(0, 'rgba(0,0,0,0)');
+            edgeGrad.addColorStop(0.6, 'rgba(0,0,0,0)');
+            edgeGrad.addColorStop(0.8, 'rgba(5,2,15,0.3)');
+            edgeGrad.addColorStop(0.95, 'rgba(5,2,15,0.7)');
+            edgeGrad.addColorStop(1, 'rgba(3,0,10,0.9)');
+            ctx.fillStyle = edgeGrad;
+            ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
+
+            // === Living planet glow layers ===
+            ctx.globalCompositeOperation = 'lighter';
+
+            // 1. Main surface breathing glow — slow warm pulse (wide)
+            const breath1 = 0.1 + Math.sin(time * 0.0015) * 0.04;
+            const glow1 = ctx.createRadialGradient(cx, cy, ry * 0.05, cx, cy, Math.max(rx, ry) * 1.1);
+            glow1.addColorStop(0, `rgba(255, 130, 70, ${breath1 + approach * 0.06})`);
+            glow1.addColorStop(0.35, `rgba(220, 70, 40, ${breath1 * 0.7})`);
+            glow1.addColorStop(0.7, `rgba(180, 40, 20, ${breath1 * 0.3})`);
+            glow1.addColorStop(1, 'rgba(120, 20, 10, 0)');
+            ctx.fillStyle = glow1;
+            ctx.fillRect(cx - rx * 1.3, cy - ry * 1.3, rx * 2.6, ry * 2.6);
+
+            // 2. Wandering magma hotspot — moves across wider surface
+            const hotX = cx + Math.sin(time * 0.0003) * rx * 0.55;
+            const hotY = cy + Math.cos(time * 0.0004) * ry * 0.35;
+            const hotPulse = 0.12 + Math.sin(time * 0.004) * 0.05;
+            const hotGrad = ctx.createRadialGradient(hotX, hotY, 0, hotX, hotY, rx * 0.55);
+            hotGrad.addColorStop(0, `rgba(255, 180, 80, ${hotPulse})`);
+            hotGrad.addColorStop(0.35, `rgba(255, 100, 40, ${hotPulse * 0.5})`);
+            hotGrad.addColorStop(1, 'rgba(200, 40, 0, 0)');
+            ctx.fillStyle = hotGrad;
+            ctx.fillRect(cx - rx * 1.3, cy - ry * 1.3, rx * 2.6, ry * 2.6);
+
+            // 3. Second hotspot — offset phase, wider
+            const hot2X = cx - Math.sin(time * 0.00025) * rx * 0.5;
+            const hot2Y = cy - Math.cos(time * 0.00035) * ry * 0.25 + ry * 0.2;
+            const hot2Pulse = 0.09 + Math.sin(time * 0.003 + 2) * 0.04;
+            const hot2Grad = ctx.createRadialGradient(hot2X, hot2Y, 0, hot2X, hot2Y, rx * 0.45);
+            hot2Grad.addColorStop(0, `rgba(255, 140, 60, ${hot2Pulse})`);
+            hot2Grad.addColorStop(0.45, `rgba(200, 60, 30, ${hot2Pulse * 0.4})`);
+            hot2Grad.addColorStop(1, 'rgba(150, 20, 0, 0)');
+            ctx.fillStyle = hot2Grad;
+            ctx.fillRect(cx - rx * 1.3, cy - ry * 1.3, rx * 2.6, ry * 2.6);
+
+            // 4. Crack-like energy veins — wider flickering bands
+            for (let i = 0; i < 3; i++) {
+                const veinY = cy + (i - 1) * ry * 0.4 + Math.sin(time * 0.001 + i * 2) * ry * 0.08;
+                const veinFlicker = 0.04 + Math.sin(time * 0.006 + i * 1.5) * 0.025;
+                const veinGrad = ctx.createRadialGradient(cx, veinY, 0, cx, veinY, rx * 1.0);
+                veinGrad.addColorStop(0, `rgba(255, 160, 80, ${veinFlicker})`);
+                veinGrad.addColorStop(0.25, `rgba(255, 80, 30, ${veinFlicker * 0.5})`);
+                veinGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = veinGrad;
+                ctx.beginPath();
+                ctx.ellipse(cx, veinY, rx * 1.0, ry * 0.07, Math.sin(time * 0.0002 + i) * 0.15, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // 5. Bottom atmospheric burn — wider warm entry glow
+            const burnPulse = 0.18 + approach * 0.12 + Math.sin(time * 0.003) * 0.05;
+            const burnGlow = ctx.createRadialGradient(cx, cy + ry * 0.85, ry * 0.05, cx, cy + ry * 0.2, rx * 1.1);
+            burnGlow.addColorStop(0, `rgba(255, 160, 60, ${burnPulse})`);
+            burnGlow.addColorStop(0.35, `rgba(255, 90, 20, ${burnPulse * 0.5})`);
+            burnGlow.addColorStop(1, 'rgba(200, 30, 0, 0)');
+            ctx.fillStyle = burnGlow;
+            ctx.fillRect(cx - rx * 1.3, cy - ry * 0.2, rx * 2.6, ry * 1.5);
+
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        // Base gradient — fallback for no texture
+        if (!this.assets.planet) {
+            const planetGrad = ctx.createRadialGradient(cx, cy + ry * 0.15, ry * 0.1, cx, cy, Math.max(rx, ry));
+            planetGrad.addColorStop(0, '#251040');
+            planetGrad.addColorStop(0.25, '#1a0830');
+            planetGrad.addColorStop(0.5, '#120520');
+            planetGrad.addColorStop(0.8, '#080215');
+            planetGrad.addColorStop(1, '#03000a');
+            ctx.fillStyle = planetGrad;
+            ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
+        }
+
+        // Atmospheric banding — skip if texture loaded
+        if (!this.assets.planet) {
         // Atmospheric banding — bold, high contrast, gas giant stripes
         const bandCount = 22;
         const bandAlpha = 1.5 + approach * 1.5;
@@ -707,6 +802,7 @@ export class Game {
         ctx.beginPath();
         ctx.ellipse(storm2X, storm2Y, rx * 0.08, ry * 0.06, 0.3, 0, Math.PI * 2);
         ctx.fill();
+        } // end procedural planet surface
 
         // Spherical shading — left/right terminator
         const shadeGrad = ctx.createLinearGradient(cx - rx, cy, cx + rx, cy);
@@ -760,24 +856,15 @@ export class Game {
         ctx.globalCompositeOperation = 'source-over';
         ctx.restore();
 
-        // Rim Light — elliptical, bottom arc (visible underside from ground)
+        // Rim Light — subtle glow at planet edge
         ctx.save();
-        const rimIntensity = 0.6 + approach * 0.4;
-        ctx.shadowBlur = 80 + approach * 120;
-        ctx.shadowColor = approach > 0.5 ? '#ff2200' : '#ff6600';
-        ctx.strokeStyle = `rgba(255, ${Math.floor(180 - approach * 100)}, 40, ${rimIntensity + Math.sin(time * 0.004) * 0.15})`;
-        ctx.lineWidth = 4 + approach * 6 + Math.sin(time * 0.005) * 2;
+        const rimIntensity = 0.15 + approach * 0.2;
+        ctx.shadowBlur = 30 + approach * 50;
+        ctx.shadowColor = approach > 0.5 ? '#ff220088' : '#ff660066';
+        ctx.strokeStyle = `rgba(255, ${Math.floor(180 - approach * 100)}, 40, ${rimIntensity + Math.sin(time * 0.004) * 0.05})`;
+        ctx.lineWidth = 1.5 + approach * 2;
         ctx.beginPath();
         ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 0.05, Math.PI * 0.95);
-        ctx.stroke();
-
-        // Second inner rim for depth
-        ctx.shadowBlur = 40;
-        ctx.shadowColor = '#ffaa00';
-        ctx.strokeStyle = `rgba(255, 200, 100, ${rimIntensity * 0.3})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, rx * 0.99, ry * 0.99, 0, Math.PI * 0.08, Math.PI * 0.92);
         ctx.stroke();
         ctx.shadowBlur = 0;
         ctx.restore();
@@ -889,7 +976,6 @@ export class Game {
                     ctx.strokeStyle = `rgba(255, 100, 40, ${0.05 + idx * 0.03})`;
                     ctx.lineWidth = 1;
                     ctx.beginPath();
-                    // Inner edge (toward center) gets the rim light
                     if (b.x < W / 2) {
                         ctx.moveTo(b.w / 2, 0);
                         ctx.lineTo(b.w / 2, b.h);
@@ -921,14 +1007,13 @@ export class Game {
                 if (idx > 0 && b.windows) {
                     b.windows.forEach(w => {
                         if (Math.abs(w.ry) < Math.abs(b.h) - 5) {
-                            // Variety of window colors: mostly cyan, some warm
                             let wColor;
                             if (w.bright > 0.95) {
-                                wColor = '#ff0055'; // Red accent
+                                wColor = '#ff0055';
                             } else if (w.bright > 0.8) {
-                                wColor = `rgba(255, 200, 100, ${0.4 + idx * 0.15})`; // Warm
+                                wColor = `rgba(255, 200, 100, ${0.4 + idx * 0.15})`;
                             } else {
-                                wColor = `rgba(80, 180, 255, ${0.2 + idx * 0.2})`; // Cyan
+                                wColor = `rgba(80, 180, 255, ${0.2 + idx * 0.2})`;
                             }
                             ctx.fillStyle = wColor;
                             ctx.fillRect(-b.w / 2 + w.rx, -w.ry, 2, 3);

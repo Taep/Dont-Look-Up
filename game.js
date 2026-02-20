@@ -127,18 +127,16 @@ export class Game {
     }
 
     createDebris() {
-        const roll = Math.random();
-        const isBig = roll < 0.1;
-        const isMedium = roll < 0.35;
+        const isMedium = Math.random() < this.planetApproach * 0.5;
         return {
             x: Math.random() * this.width,
             y: -20 - Math.random() * 80,
-            size: isBig ? 4 + Math.random() * 5 : isMedium ? 1.5 + Math.random() * 2.5 : 0.5 + Math.random() * 1.5,
-            speed: isBig ? 0.8 + Math.random() * 1.5 : isMedium ? 0.3 + Math.random() * 0.8 : 0.15 + Math.random() * 0.5,
+            size: isMedium ? 1.5 + Math.random() * 2.5 : 0.5 + Math.random() * 1.5,
+            speed: isMedium ? 0.3 + Math.random() * 0.8 : 0.15 + Math.random() * 0.5,
             angle: Math.PI * 0.3 + Math.random() * 0.5,
-            trailLen: isBig ? 60 + Math.random() * 100 : isMedium ? 25 + Math.random() * 50 : 8 + Math.random() * 25,
+            trailLen: isMedium ? 25 + Math.random() * 50 : 8 + Math.random() * 25,
             life: Math.random() * 1000,
-            brightness: isBig ? 0.7 + Math.random() * 0.3 : 0.2 + Math.random() * 0.6
+            brightness: isMedium ? 0.4 + Math.random() * 0.5 : 0.2 + Math.random() * 0.6
         };
     }
 
@@ -352,6 +350,7 @@ export class Game {
         // Screen shake decay
         this.screenShake *= 0.95;
         if (this.screenShake < 0.1) this.screenShake = 0;
+
         // Spawn flash decay
         this.spawnFlash *= 0.92;
 
@@ -606,144 +605,162 @@ export class Game {
         const planetScale = 0.35 + approach * 2.6 + breathe;
         const cx = W / 2;
         const r = (Math.min(W, H) * 0.5) * planetScale;
+        // Slightly foreshortened — looking up, wider than tall but still clearly spherical
+        const rx = r * 1.15;
+        const ry = r * 0.8;
         // Starts high above screen, descends into view as it approaches
-        const cy = -r * 0.75 + approach * H * 0.45;
+        const cy = -ry * 0.7 + approach * H * 0.4;
 
-        // Planet body — gas giant surface
+        // Planet body — gas giant surface (elliptical from ground perspective)
         ctx.save();
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
         ctx.clip();
 
-        // Base gradient — deep dark sphere with slight illumination from below
-        const planetGrad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.2, r * 0.05, cx, cy, r);
-        planetGrad.addColorStop(0, '#1a0a30');
-        planetGrad.addColorStop(0.3, '#120620');
-        planetGrad.addColorStop(0.7, '#0a0318');
-        planetGrad.addColorStop(1, '#040010');
+        // Base gradient — visible dark body, lighter center for depth
+        const planetGrad = ctx.createRadialGradient(cx, cy + ry * 0.15, ry * 0.1, cx, cy, Math.max(rx, ry));
+        planetGrad.addColorStop(0, '#251040');
+        planetGrad.addColorStop(0.25, '#1a0830');
+        planetGrad.addColorStop(0.5, '#120520');
+        planetGrad.addColorStop(0.8, '#080215');
+        planetGrad.addColorStop(1, '#03000a');
         ctx.fillStyle = planetGrad;
-        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+        ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
 
-        // Atmospheric banding — structured horizontal cloud bands like Jupiter
-        const bandCount = 28;
-        const bandAlpha = 0.8 + approach * 1.2;
+        // Atmospheric banding — bold, high contrast, gas giant stripes
+        const bandCount = 22;
+        const bandAlpha = 1.5 + approach * 1.5;
+        // Alternating dark/light band pairs for clear stripe pattern
         const bandColors = [
-            [140, 50, 170], [80, 30, 120], [170, 70, 100], [50, 60, 130],
-            [120, 35, 80], [60, 40, 140], [160, 80, 120], [40, 50, 100],
-            [100, 25, 60], [80, 60, 150]
+            [160, 60, 180], [40, 20, 60],  [180, 80, 110], [30, 25, 70],
+            [140, 45, 90],  [50, 35, 100], [170, 90, 130], [35, 20, 55],
+            [120, 40, 70],  [60, 45, 120], [150, 65, 100], [25, 15, 50]
         ];
         for (let i = 0; i < bandCount; i++) {
             const t = i / bandCount;
-            const yOff = (t * 2 - 1) * r;
-            const bandW = r * Math.sqrt(1 - Math.pow(t * 2 - 1, 2));
+            const perspT = 0.5 + (t - 0.5) * (0.7 + (t > 0.5 ? 0.6 : 0.3) * Math.abs(t - 0.5));
+            const yOff = (perspT * 2 - 1) * ry;
+            const normY = (perspT * 2 - 1);
+            const bandW = rx * Math.sqrt(Math.max(0, 1 - normY * normY));
             if (bandW <= 0) continue;
-            const bandH = r * 2 / bandCount;
+            const bandH = ry * 2 / bandCount;
             const c = bandColors[i % bandColors.length];
-            // Wavy band edges for turbulence
-            const waveOff = Math.sin(t * 12 + time * 0.0004) * r * 0.02;
+            const waveOff = Math.sin(t * 10 + time * 0.0003) * rx * 0.02;
 
-            const alpha = (0.08 + Math.sin(t * 8) * 0.04) * bandAlpha;
+            // Main band — bold alpha
+            const alpha = (0.15 + Math.sin(t * 6) * 0.06) * bandAlpha;
             ctx.fillStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${alpha})`;
             ctx.beginPath();
-            ctx.ellipse(cx + waveOff, cy + yOff, bandW, bandH * 1.8, 0, 0, Math.PI * 2);
+            ctx.ellipse(cx + waveOff, cy + yOff, bandW, bandH * 2.2, 0, 0, Math.PI * 2);
             ctx.fill();
 
-            // Thinner bright edge between bands
-            if (i % 3 === 0) {
-                ctx.fillStyle = `rgba(${c[0] + 60}, ${c[1] + 40}, ${c[2] + 40}, ${alpha * 0.5})`;
+            // Bright edge highlight every few bands
+            if (i % 2 === 0) {
+                ctx.fillStyle = `rgba(${Math.min(255, c[0] + 80)}, ${Math.min(255, c[1] + 50)}, ${Math.min(255, c[2] + 50)}, ${alpha * 0.35})`;
                 ctx.beginPath();
-                ctx.ellipse(cx - waveOff * 0.5, cy + yOff + bandH * 0.5, bandW * 0.95, bandH * 0.4, 0, 0, Math.PI * 2);
+                ctx.ellipse(cx - waveOff * 0.5, cy + yOff + bandH * 0.4, bandW * 0.97, bandH * 0.35, 0, 0, Math.PI * 2);
                 ctx.fill();
             }
         }
 
-        // Great storm eye (like Jupiter's red spot)
-        const stormX = cx + Math.sin(time * 0.00015) * r * 0.25;
-        const stormY = cy + r * 0.25;
-        const stormRx = r * 0.18;
-        const stormRy = r * 0.08;
-        // Outer storm
-        const stormGrad = ctx.createRadialGradient(stormX, stormY, 0, stormX, stormY, stormRx);
+        // Turbulent cloud wisps between bands
+        for (let i = 0; i < 8; i++) {
+            const wy = cy + (i / 8 - 0.5) * ry * 1.6;
+            const wx = cx + Math.sin(i * 3.7 + time * 0.0002) * rx * 0.3;
+            const wispGrad = ctx.createRadialGradient(wx, wy, 0, wx, wy, rx * 0.15);
+            wispGrad.addColorStop(0, `rgba(180, 100, 160, ${0.06 + approach * 0.03})`);
+            wispGrad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = wispGrad;
+            ctx.beginPath();
+            ctx.ellipse(wx, wy, rx * 0.15, ry * 0.04, Math.sin(i + time * 0.0001) * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Great storm eye — positioned on the visible underside
+        const stormX = cx + Math.sin(time * 0.00015) * rx * 0.2;
+        const stormY = cy + ry * 0.25;
+        const stormSx = rx * 0.15;
+        const stormSy = ry * 0.12;
+        const stormGrad = ctx.createRadialGradient(stormX, stormY, 0, stormX, stormY, stormSx);
         stormGrad.addColorStop(0, `rgba(200, 60, 80, ${0.3 + approach * 0.15})`);
         stormGrad.addColorStop(0.4, `rgba(160, 40, 100, ${0.2 + approach * 0.1})`);
         stormGrad.addColorStop(0.7, `rgba(120, 30, 80, ${0.1})`);
         stormGrad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = stormGrad;
         ctx.beginPath();
-        ctx.ellipse(stormX, stormY, stormRx, stormRy, Math.sin(time * 0.0002) * 0.2, 0, Math.PI * 2);
+        ctx.ellipse(stormX, stormY, stormSx, stormSy, Math.sin(time * 0.0002) * 0.2, 0, Math.PI * 2);
         ctx.fill();
-        // Storm swirl ring
         ctx.strokeStyle = `rgba(220, 80, 100, ${0.15 + approach * 0.1})`;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.ellipse(stormX, stormY, stormRx * 0.7, stormRy * 0.7, -Math.sin(time * 0.0003) * 0.4, 0, Math.PI * 2);
+        ctx.ellipse(stormX, stormY, stormSx * 0.7, stormSy * 0.7, -Math.sin(time * 0.0003) * 0.4, 0, Math.PI * 2);
         ctx.stroke();
 
         // Second smaller storm
-        const storm2X = cx - r * 0.3 + Math.sin(time * 0.0002) * r * 0.05;
-        const storm2Y = cy - r * 0.15;
-        const s2Grad = ctx.createRadialGradient(storm2X, storm2Y, 0, storm2X, storm2Y, r * 0.1);
+        const storm2X = cx - rx * 0.25 + Math.sin(time * 0.0002) * rx * 0.04;
+        const storm2Y = cy + ry * 0.1;
+        const s2Grad = ctx.createRadialGradient(storm2X, storm2Y, 0, storm2X, storm2Y, rx * 0.08);
         s2Grad.addColorStop(0, `rgba(80, 50, 160, ${0.2 + approach * 0.1})`);
         s2Grad.addColorStop(0.6, `rgba(50, 30, 120, ${0.1})`);
         s2Grad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = s2Grad;
         ctx.beginPath();
-        ctx.ellipse(storm2X, storm2Y, r * 0.1, r * 0.045, 0.3, 0, Math.PI * 2);
+        ctx.ellipse(storm2X, storm2Y, rx * 0.08, ry * 0.06, 0.3, 0, Math.PI * 2);
         ctx.fill();
 
-        // Spherical shading — terminator (day/night boundary) for 3D depth
-        const shadeGrad = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+        // Spherical shading — left/right terminator
+        const shadeGrad = ctx.createLinearGradient(cx - rx, cy, cx + rx, cy);
         shadeGrad.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
         shadeGrad.addColorStop(0.3, 'rgba(0, 0, 0, 0.1)');
         shadeGrad.addColorStop(0.55, 'rgba(0, 0, 0, 0)');
         shadeGrad.addColorStop(0.8, 'rgba(0, 0, 0, 0.15)');
         shadeGrad.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
         ctx.fillStyle = shadeGrad;
-        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+        ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
 
-        // Top-to-bottom spherical shading for curvature
-        const curveGrad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
+        // Edge darkening for curved surface depth
+        const curveGrad = ctx.createRadialGradient(cx, cy, Math.min(rx, ry) * 0.3, cx, cy, rx);
         curveGrad.addColorStop(0, 'rgba(0,0,0,0)');
         curveGrad.addColorStop(0.7, 'rgba(0,0,0,0.05)');
         curveGrad.addColorStop(0.9, 'rgba(0,0,0,0.2)');
         curveGrad.addColorStop(1, 'rgba(0,0,0,0.45)');
         ctx.fillStyle = curveGrad;
-        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+        ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
 
-        // BURNING ATMOSPHERE — strong from the start, intensifies
+        // BURNING ATMOSPHERE — concentrated at the rim, not covering the whole surface
         ctx.globalCompositeOperation = 'lighter';
-        const heatBase = 0.15 + approach * 0.25;
-        const heatPulse = heatBase + Math.sin(time * 0.003) * 0.06;
+        const heatBase = 0.1 + approach * 0.2;
+        const heatPulse = heatBase + Math.sin(time * 0.003) * 0.05;
 
-        // Primary burn at bottom edge
-        const burnGrad = ctx.createRadialGradient(cx, cy + r * 0.8, r * 0.05, cx, cy + r * 0.4, r * 0.7);
+        // Primary burn at bottom edge (underside visible from ground)
+        const burnGrad = ctx.createRadialGradient(cx, cy + ry * 0.8, ry * 0.05, cx, cy + ry * 0.3, rx * 0.6);
         burnGrad.addColorStop(0, `rgba(255, 130, 30, ${heatPulse})`);
         burnGrad.addColorStop(0.4, `rgba(255, 70, 10, ${heatPulse * 0.6})`);
         burnGrad.addColorStop(1, 'rgba(200, 30, 0, 0)');
         ctx.fillStyle = burnGrad;
-        ctx.fillRect(cx - r, cy, r * 2, r);
+        ctx.fillRect(cx - rx, cy, rx * 2, ry);
 
         // Secondary burn — wide glow
-        const burnGrad2 = ctx.createRadialGradient(cx, cy + r * 0.95, r * 0.05, cx, cy + r * 0.6, r * 0.5);
+        const burnGrad2 = ctx.createRadialGradient(cx, cy + ry * 0.95, ry * 0.05, cx, cy + ry * 0.5, rx * 0.5);
         burnGrad2.addColorStop(0, `rgba(255, 220, 80, ${heatPulse * 0.7})`);
         burnGrad2.addColorStop(1, 'rgba(255, 80, 0, 0)');
         ctx.fillStyle = burnGrad2;
-        ctx.fillRect(cx - r, cy, r * 2, r);
+        ctx.fillRect(cx - rx, cy, rx * 2, ry);
 
         // Spawn flash — planet pulses bright when launching enemies
         if (this.spawnFlash > 0.05) {
-            const flashGrad = ctx.createRadialGradient(cx, cy + r * 0.9, 0, cx, cy + r * 0.5, r * 0.4);
+            const flashGrad = ctx.createRadialGradient(cx, cy + ry * 0.9, 0, cx, cy + ry * 0.4, rx * 0.4);
             flashGrad.addColorStop(0, `rgba(255, 255, 200, ${this.spawnFlash * 0.6})`);
             flashGrad.addColorStop(0.5, `rgba(255, 150, 50, ${this.spawnFlash * 0.35})`);
             flashGrad.addColorStop(1, 'rgba(255, 50, 0, 0)');
             ctx.fillStyle = flashGrad;
-            ctx.fillRect(cx - r, cy, r * 2, r);
+            ctx.fillRect(cx - rx, cy, rx * 2, ry);
         }
 
         ctx.globalCompositeOperation = 'source-over';
         ctx.restore();
 
-        // Rim Light — visible from start, intensifies
+        // Rim Light — elliptical, bottom arc (visible underside from ground)
         ctx.save();
         const rimIntensity = 0.6 + approach * 0.4;
         ctx.shadowBlur = 80 + approach * 120;
@@ -751,7 +768,7 @@ export class Game {
         ctx.strokeStyle = `rgba(255, ${Math.floor(180 - approach * 100)}, 40, ${rimIntensity + Math.sin(time * 0.004) * 0.15})`;
         ctx.lineWidth = 4 + approach * 6 + Math.sin(time * 0.005) * 2;
         ctx.beginPath();
-        ctx.arc(cx, cy, r, Math.PI * 0.08, Math.PI * 0.92);
+        ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 0.05, Math.PI * 0.95);
         ctx.stroke();
 
         // Second inner rim for depth
@@ -760,7 +777,7 @@ export class Game {
         ctx.strokeStyle = `rgba(255, 200, 100, ${rimIntensity * 0.3})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(cx, cy, r * 0.99, Math.PI * 0.1, Math.PI * 0.9);
+        ctx.ellipse(cx, cy, rx * 0.99, ry * 0.99, 0, Math.PI * 0.08, Math.PI * 0.92);
         ctx.stroke();
         ctx.shadowBlur = 0;
         ctx.restore();
@@ -768,14 +785,14 @@ export class Game {
         // Atmospheric scatter — orange haze below planet
         const atmosSpread = 200 + approach * 250;
         const atmosIntensity = 0.06 + approach * 0.14;
-        const atmosGrad = ctx.createLinearGradient(0, cy + r - atmosSpread, 0, cy + r + 250);
+        const atmosGrad = ctx.createLinearGradient(0, cy + ry - atmosSpread, 0, cy + ry + 250);
         atmosGrad.addColorStop(0, 'rgba(0,0,0,0)');
         atmosGrad.addColorStop(0.25, `rgba(255, 80, 20, ${atmosIntensity + Math.sin(time * 0.002) * 0.02})`);
         atmosGrad.addColorStop(0.5, `rgba(255, 120, 40, ${atmosIntensity * 0.8})`);
         atmosGrad.addColorStop(0.75, `rgba(200, 60, 20, ${atmosIntensity * 0.3})`);
         atmosGrad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = atmosGrad;
-        ctx.fillRect(0, cy + r - atmosSpread, W, atmosSpread + 250);
+        ctx.fillRect(0, cy + ry - atmosSpread, W, atmosSpread + 250);
 
         // ============================================================
         // 5. FALLING DEBRIS (shooting stars in the atmosphere)

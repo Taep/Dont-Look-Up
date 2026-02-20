@@ -1,0 +1,169 @@
+:root {
+    --primary-color: #00f3ff; /* Cyan */
+    --secondary-color: #ff0055; /* Magenta/Red */
+    --bg-color: #050510; /* Dark Space */
+    --ui-font: 'Orbitron', sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+    user-select: none;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: var(--bg-color);
+    font-family: var(--ui-font);
+    color: white;
+}
+
+#game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Let clicks pass through to canvas */
+}
+
+.overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    pointer-events: auto; /* Re-enable clicks for buttons */
+    backdrop-filter: blur(5px);
+}
+
+.hidden {
+    display: none !important;
+}
+
+h1 {
+    font-size: 4rem;
+    color: var(--primary-color);
+    text-shadow: 0 0 20px var(--primary-color);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 5px;
+}
+
+p {
+    font-size: 1.2rem;
+    color: #aaaaaa;
+    margin-bottom: 2rem;
+}
+
+button {
+    background: transparent;
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+    padding: 15px 40px;
+    font-size: 1.5rem;
+    font-family: var(--ui-font);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    box-shadow: 0 0 10px rgba(0, 243, 255, 0.2);
+}
+
+button:hover {
+    background: var(--primary-color);
+    color: Black;
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.8);
+}
+
+#hud {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    display: flex;
+    gap: 20px;
+    pointer-events: none;
+}
+
+.hud-item {
+    font-size: 1.2rem;
+    color: white;
+    text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 5px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+#tower-bar {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    pointer-events: auto;
+}
+
+.tower-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.6);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 80px;
+}
+
+.tower-opt:hover {
+    border-color: var(--primary-color);
+    background: rgba(0, 243, 255, 0.05);
+}
+
+.tower-opt.selected {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 12px rgba(0, 243, 255, 0.3);
+    background: rgba(0, 243, 255, 0.1);
+}
+
+.tower-opt.unaffordable {
+    opacity: 0.4;
+}
+
+.tower-key {
+    font-size: 0.6rem;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 2px;
+}
+
+.tower-label {
+    font-size: 0.8rem;
+    color: white;
+    letter-spacing: 2px;
+}
+
+.tower-price {
+    font-size: 0.65rem;
+    color: var(--primary-color);
+    margin-top: 2px;
+}

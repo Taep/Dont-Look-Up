@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Don't Look Up (돈룩업)</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui-layer">
+            <div id="hud">
+                <div class="hud-item">WAVE: <span id="wave-count">1</span></div>
+                <div class="hud-item">CREDITS: <span id="credits-count">100</span></div>
+                <div class="hud-item">BASE HP: <span id="base-hp">100%</span></div>
+            </div>
+            <div id="tower-bar" class="hidden">
+                <div class="tower-opt selected" data-type="turret">
+                    <span class="tower-key">1</span>
+                    <span class="tower-label">TURRET</span>
+                    <span class="tower-price">50 CR</span>
+                </div>
+                <div class="tower-opt" data-type="laser">
+                    <span class="tower-key">2</span>
+                    <span class="tower-label">LASER</span>
+                    <span class="tower-price">75 CR</span>
+                </div>
+                <div class="tower-opt" data-type="shield">
+                    <span class="tower-key">3</span>
+                    <span class="tower-label">SHIELD</span>
+                    <span class="tower-price">100 CR</span>
+                </div>
+            </div>
+            <div id="start-screen" class="overlay">
+                <h1>DON'T LOOK UP</h1>
+                <p>Protect the Zenith from the invaders.</p>
+                <button id="start-btn">INITIALIZE DEFENSE</button>
+            </div>
+            <div id="game-over-screen" class="overlay hidden">
+                <h1>SYSTEM FAILURE</h1>
+                <p>The city has fallen.</p>
+                <p>Final Wave: <span id="final-wave">0</span></p>
+                <button id="restart-btn">REBOOT SYSTEM</button>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="game.js"></script>
+</body>
+</html>
